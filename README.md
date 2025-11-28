@@ -2,93 +2,164 @@
 
 # Rollup Repo for AI
 
-A bash tool that rolls up your entire repository into AI-friendly chunks, perfect for feeding codebases into LLMs like ChatGPT, Claude, or other AI assistants.
+Merge your entire codebase into AI-ready text files. Perfect for uploading project context to Claude, ChatGPT, or any LLM.
 
-## Features
+## Why?
 
-- **Two Output Modes:**
+AI assistants work best with full project context, but uploading dozens of files is tedious. This tool:
 
-  - **Text Mode (.txt)** - Optimized for copy-pasting into LLM chat interfaces
-  - **Executable Mode (.sh)** - Creates scripts that can recreate your codebase when run
+- Concatenates your repo into chunked `.txt` files sized for AI uploads
+- Strips comments, whitespace, and base64 blobs to maximize signal
+- Respects `.gitignore` and excludes lock files, `node_modules`, build artifacts
+- Optionally generates restore scripts to recreate the file structure
 
-- **Smart File Handling:**
+## Quick Start
 
-  - Automatically strips comments to reduce token usage
-  - Skips binary files and lockfiles
-  - Excludes common build directories (node_modules, dist, .next, etc.)
-  - Uses git to find tracked files
+```bash
+# Clone or download
+git clone https://github.com/yourusername/rollup-repo-for-ai.git
+cd rollup-repo-for-ai
 
-- **Chunking Support:**
-  - Splits output into configurable chunk sizes (default 40KB)
-  - Seamlessly continues files across chunks
-  - Includes project tree structure in output
+# Run on current directory
+node roll_repo_for_ai.js
+
+# Or use bash version
+./roll_repo_for_ai.sh
+```
+
+Output lands in `./rolled_repo/`
 
 ## Usage
 
+### Node.js Version
+
 ```bash
-./roll_repo_for_ai.sh [repo_path] [chunk_size_kb]
+node roll_repo_for_ai.js [repo_path] [max_kb] [--mode text|sh]
 ```
 
-### Arguments
+| Argument    | Default | Description                                     |
+| ----------- | ------- | ----------------------------------------------- |
+| `repo_path` | `.`     | Path to your git repository                     |
+| `max_kb`    | `40`    | Max size per output file (KB)                   |
+| `--mode`    | `text`  | `text` for AI context, `sh` for restore scripts |
 
-| Argument        | Default                 | Description                         |
-| --------------- | ----------------------- | ----------------------------------- |
-| `repo_path`     | `.` (current directory) | Path to the git repository          |
-| `chunk_size_kb` | `40`                    | Maximum size per output chunk in KB |
-
-### Examples
+**Examples:**
 
 ```bash
-# Roll current directory with defaults
-./roll_repo_for_ai.sh
+# Roll current repo into 40KB chunks
+node roll_repo_for_ai.js
 
-# Roll a specific repo
-./roll_repo_for_ai.sh /path/to/my/project
+# Roll a different repo with 100KB chunks
+node roll_repo_for_ai.js ../my-project 100
 
-# Roll with 100KB chunks
-./roll_repo_for_ai.sh . 100
+# Generate restore scripts instead of text
+node roll_repo_for_ai.js . 40 --mode sh
+```
+
+### Bash Version
+
+```bash
+./roll_repo_for_ai.sh [repo_path] [max_kb]
+```
+
+Prompts interactively for mode selection:
+
+```
+1) AI Clean (.txt)
+2) SH Restore (.sh)
+Select mode [1 or 2]:
 ```
 
 ## Output Modes
 
-### Mode 1: Text Mode (.txt)
+### Text Mode (default)
 
-Best for manually pasting into AI chat interfaces.
+Generates `ai_context_1.txt`, `ai_context_2.txt`, etc.
 
-- Clear file headers and footers
-- Comments stripped from code
-- Whitespace optimized to save tokens
-- Output: `rolled_repo/ai_context_text_N.txt`
+```
+===== FILE: src/components/Button.tsx =====
+import React from "react"
+export function Button({ children }) { return <button>{children}</button> }
 
-### Mode 2: Executable Mode (.sh)
+===== FILE: src/utils/helpers.ts =====
+export const formatDate = (d) => d.toLocaleDateString()
+```
 
-Creates shell scripts using heredoc syntax that can recreate your files.
+**Optimizations applied:**
 
-- AI can read and understand the code
-- Run the script to restore/unroll all files
-- Output: `rolled_repo/ai_restore_script_N.sh`
+- Removes single-line comments (`//`, `#`)
+- Removes block comments (`/* */`)
+- Collapses whitespace
+- Strips base64 data URIs (except in CSS)
+- Wraps long lines at 200 characters
 
-To restore files from executable mode:
+### Shell Restore Mode
+
+Generates `ai_restore_1.sh`, `ai_restore_2.sh`, etc.
+
+Executable scripts that recreate your file structure:
 
 ```bash
-./rolled_repo/ai_restore_script_1.sh
+#!/bin/bash
+mkdir -p "src/components" && cat << 'EOF_A1B2C3' > "src/components/Button.tsx"
+import React from "react";
+// Full original content preserved
+EOF_A1B2C3
 ```
+
+Run them to restore: `bash ai_restore_1.sh`
+
+## What Gets Excluded
+
+| Pattern                                                                   | Reason                         |
+| ------------------------------------------------------------------------- | ------------------------------ |
+| `*.lock`, `bun.lockb`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` | Lock files are noise           |
+| `.env`, `.env.*`                                                          | Security - never share secrets |
+| `.git/`, `.next/`, `.cache/`                                              | Build/system directories       |
+| `node_modules/`, `dist/`, `build/`, `out/`, `coverage/`, `public/`        | Dependencies and outputs       |
+
+Only git-tracked files are processed (`git ls-files`).
+
+## Recommended Workflow
+
+1. **Roll your repo:**
+
+   ```bash
+   node roll_repo_for_ai.js ./my-project 50
+   ```
+
+2. **Upload to your AI assistant:**
+
+   - Drag and drop `ai_context_1.txt` (and subsequent parts) into Claude/ChatGPT
+   - Or paste contents directly
+
+3. **Prompt with context:**
+
+   > "I've uploaded my project files. Help me refactor the Button component to use Tailwind."
+
+4. **For code generation**, use restore mode:
+   ```bash
+   node roll_repo_for_ai.js . 40 --mode sh
+   ```
+   Share the restore script with AI to get back executable file creation commands.
 
 ## Requirements
 
-- Bash
-- Git (repository must be a git repo)
-- Standard Unix utilities (stat, file, grep, etc.)
-- Optional: `tree` command for better project structure display
+- **Node.js version:** Node 18+ (uses ES modules)
+- **Bash version:** Bash 4+, standard Unix tools (`git`, `sed`, `fold`)
+- Must be run inside a git repository
 
-## How It Works
+## Tips
 
-1. Scans git-tracked files in the repository
-2. Filters out lockfiles, binaries, and build artifacts
-3. Strips comments based on file type
-4. Chunks content into manageable pieces
-5. Outputs files ready for AI consumption
+- **Chunk size:** 40KB works well for most AI interfaces. Increase to 100KB+ if your AI supports larger contexts.
+- **Multiple parts:** Upload all parts for full context, or just the relevant ones.
+- **Sensitive data:** The tool excludes `.env` files, but review output before sharing.
+- **Binary files:** Automatically skipped.
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE)
+
+---
+
+Built for developers who talk to AI about code.
