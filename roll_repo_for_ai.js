@@ -1,129 +1,117 @@
 #!/usr/bin/env node
-// roll_repo_for_ai.js — SAFE CLEAN + selective dotfile exclusion + base64 stripping (non-CSS)
-
+// roll_repo_for_ai.js - Node.js version of "roll repo for AI"
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { execSync } from "child_process";
 
-const repo = process.argv[2] || ".";
-const maxKB = parseInt(process.argv[3] || "40");
+const repoDir = process.argv[2] || ".";
+const maxKB = parseInt(process.argv[3] || "40", 10);
 const maxBytes = maxKB * 1024;
+const outDir = path.join(repoDir, "rolled_repo");
+fs.mkdirSync(outDir, { recursive: true });
 
-const mode = process.argv.includes("--mode")
-  ? process.argv[process.argv.indexOf("--mode") + 1]
-  : "text";
-
-const outDir = "rolled_repo";
-if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
-
-const files = execSync("git ls-files", { cwd: repo })
+const files = execSync(`git ls-files --cached --others --exclude-standard`, {
+  cwd: repoDir,
+})
   .toString()
   .split("\n")
-  .filter(Boolean)
-  .filter(f => !/\.lock$|bun\.lockb|package-lock\.json|yarn\.lock|pnpm-lock\.yaml/.test(f))
-  .filter(f => !/^\.env$/.test(f) && !/^\.env\..*/.test(f))
-  .filter(f => !/^\.git\//.test(f))
-  .filter(f => !/^\.next\//.test(f))
-  .filter(f => !/^\.cache\//.test(f))
-  .filter(f => !/(node_modules\/|dist\/|build\/|out\/|coverage\/|public\/)/.test(f));
+  .filter(
+    (f) =>
+      f &&
+      !f.match(
+        /(\.lock$|bun\.lockb|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)/
+      ) &&
+      !f.match(/(^\.env$|\.env\..*)/) &&
+      !f.match(/(^\.git\/|\.next\/|\.cache\/)/) &&
+      !f.match(/(node_modules\/|dist\/|build\/|out\/|coverage\/|public\/)/)
+  );
 
-const total = files.length;
-let count = 0;
+const isImage = (file) =>
+  /\.(png|jpe?g|gif|bmp|svg|webp|ico|tiff)$/i.test(file);
 
-function progress(file) {
-  count++;
-  const pct = Math.floor((count / total) * 100);
-  process.stdout.write(`Processing: ${file} [${pct}%]\r`);
-}
-
-function cleanForAI(file, content) {
-  const ext = file.split(".").pop();
-
-  let cleaned = content
+function cleanForAI(filePath) {
+  let content = fs.readFileSync(filePath, "utf8");
+  // strip common comment forms
+  content = content
     .replace(/\/\/.*$/gm, "")
     .replace(/#.*$/gm, "")
-    .replace(/\/\*[\s\S]*?\*\//gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/[ \t]+/g, " ")
-    .split("\n")
-    .map(l => l.trim())
-    .filter(Boolean)
-    .join("\n");
+    .replace(/^\s+|\s+$/gm, "")
+    .replace(/\n{2,}/g, "\n");
 
-  if (ext !== "css") {
-    cleaned = cleaned.replace(/data:[a-zA-Z0-9\/+;=,.%-]*base64,[a-zA-Z0-9\/+=]*/g, "");
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext !== ".css" && ext !== ".scss") {
+    content = content.replace(/data:[^ ]*base64,[a-zA-Z0-9/+=]+/g, "");
   }
 
-  return cleaned
-    .split("\n")
-    .map(l => l.match(/.{1,200}/g) || [])
-    .flat()
-    .join("\n");
+  return content;
 }
 
-let textPart = 1;
-let textBuf = "";
+const runText = () => {
+  let part = 1;
+  let outPath = path.join(outDir, `ai_context_${part}.txt`);
+  fs.writeFileSync(outPath, `AI CONTEXT PART ${part}\n`);
 
-function flushText() {
-  fs.writeFileSync(`${outDir}/ai_context_${textPart}.txt`, textBuf);
-  textPart++;
-  textBuf = "";
-}
+  for (const f of files) {
+    const full = path.join(repoDir, f);
+    if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) continue;
+    if (isImage(f)) continue;
 
-let shPart = 1;
-let shBuf = "";
-
-function initSh() {
-  shBuf += `#!/bin/bash\n# RESTORE SCRIPT PART ${shPart}\n\n`;
-}
-
-initSh();
-
-function flushSh() {
-  fs.writeFileSync(`${outDir}/ai_restore_${shPart}.sh`, shBuf);
-  shPart++;
-  shBuf = "";
-  initSh();
-}
-
-for (const file of files) {
-  progress(file);
-
-  const full = path.join(repo, file);
-  if (!fs.existsSync(full)) continue;
-
-  const raw = fs.readFileSync(full, "utf8");
-
-  if (mode === "text") {
-    const cleaned = cleanForAI(file, raw);
-    const header = `===== FILE: ${file} =====\n`;
-
-    if (
-      Buffer.byteLength(textBuf) +
-      Buffer.byteLength(header) +
-      Buffer.byteLength(cleaned) >
-      maxBytes
-    ) {
-      flushText();
+    const content = cleanForAI(full);
+    const header = `===== FILE: ${f} =====\n`;
+    const curSize = fs.statSync(outPath).size;
+    if (curSize + Buffer.byteLength(header) > maxBytes) {
+      part++;
+      outPath = path.join(outDir, `ai_context_${part}.txt`);
+      fs.writeFileSync(outPath, `AI CONTEXT PART ${part}\n`);
     }
-
-    textBuf += header + cleaned + "\n\n";
-    continue;
+    fs.appendFileSync(outPath, header + content + "\n\n");
+    process.stdout.write(`\rProcessed ${f}`);
   }
+};
 
-  const delimiter =
-    "EOF_" + Buffer.from(file).toString("hex").slice(0, 6).toUpperCase();
+const runRestore = () => {
+  let part = 1;
+  let outPath = path.join(outDir, `ai_restore_${part}.sh`);
 
-  const header = `mkdir -p "${path.dirname(
-    file
-  )}" && cat << '${delimiter}' > "${file}"`;
+  const init = () => {
+    fs.writeFileSync(
+      outPath,
+      "#!/bin/bash\n# RESTORE SCRIPT PART " + part + "\n\n"
+    );
+    fs.chmodSync(outPath, 0o755);
+  };
+  init();
 
-  if (Buffer.byteLength(shBuf) + Buffer.byteLength(header) > maxBytes) {
-    flushSh();
+  for (const f of files) {
+    const full = path.join(repoDir, f);
+    if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) continue;
+    if (isImage(f)) continue;
+
+    const header = `mkdir -p "${path.dirname(f)}" && cat << 'EOF' > "${f}"\n`;
+    const curSize = fs.statSync(outPath).size;
+    if (curSize + Buffer.byteLength(header) > maxBytes) {
+      part++;
+      outPath = path.join(outDir, `ai_restore_${part}.sh`);
+      init();
+    }
+    fs.appendFileSync(outPath, header);
+    fs.appendFileSync(outPath, fs.readFileSync(full, "utf8") + "\nEOF\n\n");
+    process.stdout.write(`\rProcessed ${f}`);
   }
+};
 
-  shBuf += header + "\n" + raw + "\n" + delimiter + "\n\n";
-}
+console.clear();
+console.log("==============================================");
+console.log("          🤖 Roll Repo For AI (Node) 🤖");
+console.log("==============================================");
+console.log("1) Roll AI Version (.txt minimal - most common use case)");
+console.log("2) Roll Restorable Version (.sh full heredoc)");
+const input = fs.readFileSync(0, "utf8").trim();
+const mode = input.endsWith("2") ? "2" : "1";
+if (mode === "1") runText();
+else runRestore();
 
-mode === "text" ? flushText() : flushSh();
-
-console.log(`\nDone. Files written to ${outDir}/`);
+console.log(`\nDone! Output saved in ${outDir}\n`);

@@ -12,6 +12,7 @@ AI assistants work best with full project context, but uploading dozens of files
 - Strips comments, whitespace, and base64 blobs to maximize signal
 - Respects `.gitignore` and excludes lock files, `node_modules`, build artifacts
 - Optionally generates restore scripts to recreate the file structure
+- **Interactive tree selection** for cherry-picking specific files/folders
 
 ## Quick Start
 
@@ -23,7 +24,7 @@ cd rollup-repo-for-ai
 # Run on current directory
 node roll_repo_for_ai.js
 
-# Or use bash version
+# Or use bash version (with interactive tree selection)
 ./roll_repo_for_ai.sh
 ```
 
@@ -62,17 +63,26 @@ node roll_repo_for_ai.js . 40 --mode sh
 ./roll_repo_for_ai.sh [repo_path] [max_kb]
 ```
 
-Prompts interactively for mode selection:
+Presents an interactive menu:
 
 ```
-1) AI Clean (.txt)
-2) SH Restore (.sh)
-Select mode [1 or 2]:
+           🤖 Roll Repo For AI 🤖
+==============================================
+
+  1) Roll AI Version (.txt minimal - most common)
+
+  2) Pick files from tree view (interactive select)
+
+  3) Roll Restorable Version (.sh heredoc - large)
+
+==============================================
+
+Select mode [1, 2, or 3]:
 ```
 
 ## Output Modes
 
-### Text Mode (default)
+### 1. Text Mode (default)
 
 Generates `ai_context_1.txt`, `ai_context_2.txt`, etc.
 
@@ -93,7 +103,51 @@ export const formatDate = (d) => d.toLocaleDateString()
 - Strips base64 data URIs (except in CSS)
 - Wraps long lines at 200 characters
 
-### Shell Restore Mode
+### 2. Interactive Tree Selection
+
+Cherry-pick exactly which files and folders to include. Perfect for creating smaller, focused context packages.
+
+```
+           🤖 Roll Repo For AI 🤖
+=============================================
+Select files/folders to include:
+↑/↓: Navigate | Space: Toggle | a: All | n: None | Enter: Confirm
+=============================================
+
+▶ [X]    📁 src
+   [X]    📁 app
+     [ ]    📁 about
+     [X]    📁 admin
+       [X]    📄 AdminDashboard.tsx
+       [X]    📄 Settings.tsx
+   [X]    📁 components
+     [X]    📄 Button.tsx
+     [ ]    📄 Card.tsx
+  [ ]    📁 convex
+  [ ]    📁 public
+
+─────────────────────────────────────────────
+Selected: 4/12 files  |  Item 1/15
+```
+
+**Keyboard Controls:**
+
+| Key     | Action                                         |
+| ------- | ---------------------------------------------- |
+| `↑`/`↓` | Navigate up/down through the tree              |
+| `Space` | Toggle selection (folders select all children) |
+| `a`     | Select all files                               |
+| `n`     | Deselect all files                             |
+| `Enter` | Confirm selection and generate output          |
+| `q`     | Quit without generating                        |
+
+**Use cases:**
+
+- Include only `src/` but skip `tests/`
+- Grab specific components without the whole app
+- Create minimal context for focused AI questions
+
+### 3. Shell Restore Mode
 
 Generates `ai_restore_1.sh`, `ai_restore_2.sh`, etc.
 
@@ -137,7 +191,14 @@ Only git-tracked files are processed (`git ls-files`).
 
    > "I've uploaded my project files. Help me refactor the Button component to use Tailwind."
 
-4. **For code generation**, use restore mode:
+4. **For selective context**, use tree selection:
+
+   ```bash
+   ./roll_repo_for_ai.sh
+   # Select option 2, pick only relevant files
+   ```
+
+5. **For code generation**, use restore mode:
    ```bash
    node roll_repo_for_ai.js . 40 --mode sh
    ```
@@ -155,6 +216,7 @@ Only git-tracked files are processed (`git ls-files`).
 - **Multiple parts:** Upload all parts for full context, or just the relevant ones.
 - **Sensitive data:** The tool excludes `.env` files, but review output before sharing.
 - **Binary files:** Automatically skipped.
+- **Tree selection:** Great for large repos—only include what's relevant to your question.
 
 ## License
 
