@@ -165,12 +165,14 @@ Run them to restore: `bash ai_restore_1.sh`
 
 ## What Gets Excluded
 
-| Pattern                                                                   | Reason                         |
-| ------------------------------------------------------------------------- | ------------------------------ |
-| `*.lock`, `bun.lockb`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` | Lock files are noise           |
-| `.env`, `.env.*`                                                          | Security - never share secrets |
-| `.git/`, `.next/`, `.cache/`                                              | Build/system directories       |
-| `node_modules/`, `dist/`, `build/`, `out/`, `coverage/`, `public/`        | Dependencies and outputs       |
+| Pattern                                                                   | Reason                            |
+| ------------------------------------------------------------------------- | --------------------------------- |
+| `*.lock`, `bun.lockb`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml` | Lock files are noise              |
+| `.env`, `.env.*`                                                          | Security - never share secrets    |
+| `.git/`, `.next/`, `.cache/`                                              | Build/system directories          |
+| `node_modules/`, `dist/`, `build/`, `out/`, `coverage/`, `public/`        | Dependencies and outputs          |
+| `target/`, `vendor/`, `zig-cache/`, `zig-out/`                            | Go, Rust, Zig build directories   |
+| `.exe`, `.dll`, `.so`, `.dylib`, `.a`, `.o`, `.obj`, `.lib`, `.pdb`, `.ilk`, `.exp`, `.wasm`, `.elf` | Compiled binaries and object files |
 
 Only git-tracked files are processed (`git ls-files`).
 
