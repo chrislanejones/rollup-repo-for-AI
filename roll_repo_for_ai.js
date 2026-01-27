@@ -24,11 +24,15 @@ const files = execSync(`git ls-files --cached --others --exclude-standard`, {
       ) &&
       !f.match(/(^\.env$|\.env\..*)/) &&
       !f.match(/(^\.git\/|\.next\/|\.cache\/)/) &&
-      !f.match(/(node_modules\/|dist\/|build\/|out\/|coverage\/|public\/)/)
+      !f.match(/(node_modules\/|dist\/|build\/|out\/|coverage\/|public\/)/) &&
+      !f.match(/(^|\/)(target|vendor|zig-(cache|out))(\/|$)/) &&
+      !f.match(/\.(exe|dll|so|dylib|a|o|obj|lib|pdb|ilk|exp|wasm|elf)(\..+)?$/) &&
+      !f.match(/\.(svelte\.(js|ts|jsx|tsx)|d\.ts|test)$/) &&
+      !f.match(/\.(png|jpe?g|gif|bmp|webp|ico|tiff?|raw|cr2|nef|arw|psd|heic|avif)$/i)
   );
 
 const isImage = (file) =>
-  /\.(png|jpe?g|gif|bmp|svg|webp|ico|tiff)$/i.test(file);
+  /\.(png|jpe?g|gif|bmp|webp|ico|tiff?|raw|cr2|nef|arw|psd|heic|avif)$/i.test(file);
 
 function cleanForAI(filePath) {
   let content = fs.readFileSync(filePath, "utf8");

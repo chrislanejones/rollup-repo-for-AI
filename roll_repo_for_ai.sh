@@ -2,10 +2,8 @@
 # roll_repo_for_ai.sh — Interactive tree selection + SAFE CLEAN + base64 stripping
 set -uo pipefail
 
-# Ensure TERM is set for tput
 export TERM="${TERM:-xterm}"
 
-# Safe terminal commands (don't fail if terminal not available)
 safe_clear() { clear 2>/dev/null || true; }
 safe_tput()   { tput "$@" 2>/dev/null || true; }
 
@@ -14,12 +12,10 @@ MAX_SIZE_KB="${2:-40}"
 MAX_SIZE_BYTES=$((MAX_SIZE_KB * 1024))
 OUT_DIR="rolled_repo"
 
-# Terminal colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; WHITE='\033[1;37m'
 DIM='\033[2m'; NC='\033[0m'; BOLD='\033[1m'
 
-# Selection state
 declare -A SELECTED
 declare -a TREE_ITEMS TREE_PATHS TREE_DEPTHS TREE_TYPES
 CURSOR=0
@@ -27,8 +23,6 @@ CURSOR=0
 cd "$REPO_DIR"
 mkdir -p "$OUT_DIR"
 
-# ----------  FILE DISCOVERY  ----------
-# Get all git-tracked files (filtered)
 get_files() {
     git ls-files --cached --others --exclude-standard | \
         grep -vE '(\.lock$|bun\.lockb|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)' | \
@@ -37,10 +31,11 @@ get_files() {
         grep -vE '(node_modules/|dist/|build/|out/|coverage/|public/)' | \
         grep -vE '(^|/)(target|vendor|zig-(cache|out))(/|$)' | \
         grep -vE '\.(exe|dll|so|dylib|a|o|obj|lib|pdb|ilk|exp|wasm|elf)(\..+)?$' | \
+        grep -vE '\.(svelte\.(js|ts|jsx|tsx)|d\.ts|test)$' | \
+        grep -vE '\.(png|jpe?g|gif|bmp|webp|ico|tiff?|raw|cr2|nef|arw|psd|heic|avif)$' | \
         sort
 }
 
-# ----------  TREE BUILDING  ----------
 build_tree() {
     local files="$1"
     declare -A dirs_added
@@ -54,7 +49,6 @@ build_tree() {
         IFS='/' read -ra parts <<< "$file"
         local depth=0
 
-        # parent dirs
         for ((i=0; i<${#parts[@]}-1; i++)); do
             dir_path="${dir_path:+$dir_path/}${parts[i]}"
             if [[ -z "${dirs_added[$dir_path]:-}" ]]; then
@@ -63,22 +57,20 @@ build_tree() {
                 TREE_PATHS+=("$dir_path")
                 TREE_DEPTHS+=($depth)
                 TREE_TYPES+=("dir")
-                SELECTED["$dir_path"]=1  # dirs selected by default
+                SELECTED["$dir_path"]=1
             fi
             ((depth++))
         done
 
-        # file itself
         TREE_ITEMS+=("${parts[-1]}")
         TREE_PATHS+=("$file")
         TREE_DEPTHS+=($depth)
         TREE_TYPES+=("file")
-        SELECTED["$file"]=1  # files selected by default
+        SELECTED["$file"]=1
 
     done <<< "$files"
 }
 
-# ----------  INTERACTIVE TOGGLE  ----------
 toggle_selection() {
     local idx=$1
     local path="${TREE_PATHS[$idx]}"
@@ -86,21 +78,20 @@ toggle_selection() {
 
     if [[ "${SELECTED[$path]:-0}" == "1" ]]; then
         SELECTED["$path"]=0
-        # deselect children if dir
         if [[ "$type" == "dir" ]]; then
             for ((i=0; i<${#TREE_PATHS[@]}; i++)); do
-                [[ "${TREE_PATHS[$i]}" == "$path/"* ]] && SELECTED["${TREE_PATHS[$i]}"]=0
+                [[ "${TREE_PATHS[$i]}" == "$path/"* ]] && \
+                  SELECTED["${TREE_PATHS[$i]}"]=0
             done
         fi
     else
         SELECTED["$path"]=1
-        # select children if dir
         if [[ "$type" == "dir" ]]; then
             for ((i=0; i<${#TREE_PATHS[@]}; i++)); do
-                [[ "${TREE_PATHS[$i]}" == "$path/"* ]] && SELECTED["${TREE_PATHS[$i]}"]=1
+                [[ "${TREE_PATHS[$i]}" == "$path/"* ]] && \
+                  SELECTED["${TREE_PATHS[$i]}"]=1
             done
         fi
-        # ensure parents are selected
         local parent_path="$path"
         while [[ "$parent_path" == */* ]]; do
             parent_path="${parent_path%/*}"
@@ -109,7 +100,6 @@ toggle_selection() {
     fi
 }
 
-# ----------  UI HELPERS  ----------
 get_term_height() { safe_tput lines || echo 24; }
 
 draw_tree() {
@@ -124,7 +114,8 @@ draw_tree() {
     echo -e "${BOLD}${CYAN}           🤖 Roll Repo For AI 🤖${NC}"
     echo -e "${DIM}=============================================${NC}"
     echo -e "${WHITE}Select files/folders to include:${NC}"
-    echo -e "${DIM}↑/↓: Navigate | Space: Toggle | a: All | n: None | Enter: Confirm${NC}"
+    echo -e "${DIM}↑/↓: Navigate | Space: Toggle | a: All | n: None | \
+Enter: Confirm${NC}"
     echo -e "${DIM}=============================================${NC}"
     echo ""
 
@@ -140,13 +131,16 @@ draw_tree() {
         for ((d=0; d<depth; d++)); do indent+="   "; done
 
         local checkbox
-        [[ "$selected" == "1" ]] && checkbox="${GREEN}[X]${NC}" || checkbox="${DIM}[ ]${NC}"
+        [[ "$selected" == "1" ]] && checkbox="${GREEN}[X]${NC}" || \
+          checkbox="${DIM}[ ]${NC}"
 
         local icon
-        [[ "$type" == "dir" ]] && icon="${YELLOW}📁${NC}" || icon="${BLUE}📄${NC}"
+        [[ "$type" == "dir" ]] && icon="${YELLOW}📁${NC}" || \
+          icon="${BLUE}📄${NC}"
 
         if ((i == CURSOR)); then
-            echo -e "${WHITE}▶${NC} ${checkbox} ${indent}${icon} ${BOLD}${item}${NC}"
+            echo -e "${WHITE}▶${NC} ${checkbox} ${indent}${icon} \
+${BOLD}${item}${NC}"
         else
             echo -e "  ${checkbox} ${indent}${icon} ${item}"
         fi
@@ -159,13 +153,15 @@ draw_tree() {
     local selected_files=0 total_files=0
     for ((i=0; i<${#TREE_TYPES[@]}; i++)); do
         [[ "${TREE_TYPES[$i]}" == "file" ]] && ((total_files++))
-        [[ "${TREE_TYPES[$i]}" == "file" && "${SELECTED[${TREE_PATHS[$i]}]:-0}" == "1" ]] && ((selected_files++))
+        [[ "${TREE_TYPES[$i]}" == "file" && \
+           "${SELECTED[${TREE_PATHS[$i]}]:-0}" == "1" ]] && \
+          ((selected_files++))
     done
 
-    echo -e "${GREEN}Selected: ${selected_files}/${total_files} files${NC}  |  ${DIM}Item $((CURSOR+1))/${total}${NC}"
+    echo -e "${GREEN}Selected: ${selected_files}/${total_files} files${NC}  |  \
+${DIM}Item $((CURSOR+1))/${total}${NC}"
 }
 
-# ----------  INTERACTIVE TREE SELECTOR  ----------
 tree_select() {
     local files
     files=$(get_files)
@@ -181,11 +177,14 @@ tree_select() {
             $'\x1b') read -rsn2 -t 0.1 key2
                      case "$key2" in
                          '[A') ((CURSOR>0)) && ((CURSOR--)) ;;
-                         '[B') ((CURSOR<${#TREE_ITEMS[@]}-1)) && ((CURSOR++)) ;;
+                         '[B') ((CURSOR<${#TREE_ITEMS[@]}-1)) && \
+                           ((CURSOR++)) ;;
                      esac ;;
             ' ') toggle_selection $CURSOR ;;
-            'a'|'A') for path in "${TREE_PATHS[@]}"; do SELECTED["$path"]=1; done ;;
-            'n'|'N') for path in "${TREE_PATHS[@]}"; do SELECTED["$path"]=0; done ;;
+            'a'|'A') for path in "${TREE_PATHS[@]}"; do \
+              SELECTED["$path"]=1; done ;;
+            'n'|'N') for path in "${TREE_PATHS[@]}"; do \
+              SELECTED["$path"]=0; done ;;
             ''|$'\n') safe_tput cnorm; break ;;
             'q'|'Q') safe_tput cnorm; echo; echo "Cancelled."; exit 0 ;;
         esac
@@ -193,12 +192,12 @@ tree_select() {
 
     SELECTED_FILES=""
     for ((i=0; i<${#TREE_PATHS[@]}; i++)); do
-        [[ "${TREE_TYPES[$i]}" == "file" && "${SELECTED[${TREE_PATHS[$i]}]:-0}" == "1" ]] &&
+        [[ "${TREE_TYPES[$i]}" == "file" && \
+           "${SELECTED[${TREE_PATHS[$i]}]:-0}" == "1" ]] &&
             SELECTED_FILES+="${TREE_PATHS[$i]}"$'\n'
     done
 }
 
-# ----------  PROGRESS BAR  ----------
 progress() {
     local current=$1 total=$2 file=$3
     local pct=$((current * 100 / total))
@@ -211,18 +210,20 @@ progress() {
     local max_name=30
     local display_file="$file"
     ((${#file} > max_name)) && display_file="...${file: -$((max_name-3))}"
-    printf "\r\033[K${GREEN}[%s]${NC} %3d%% │ ${DIM}%s${NC}" "$bar" "$pct" "$display_file"
+    printf "\r\033[K${GREEN}[%s]${NC} %3d%% │ ${DIM}%s${NC}" "$bar" "$pct" \
+      "$display_file"
 }
 
-# ----------  AI-STRIPPED TEXT OUTPUT  ----------
 clean_file_for_ai() {
     local f="$1"
     local ext="${f##*.}"
     local content
     content="$(sed -e 's/\/\/.*$//' -e 's/#.*$//' -e '/\/\*/,/\*\//d' \
-                   -e 's/[[:space:]]\+/ /g' -e 's/^[ \t]*//' -e 's/[ \t]*$//' "$f" 2>/dev/null | sed '/^$/d')"
+                   -e 's/[[:space:]]\+/ /g' -e 's/^[ \t]*//' \
+                   -e 's/[ \t]*$//' "$f" 2>/dev/null | sed '/^$/d')"
     [[ "$ext" != "css" ]] &&
-        content="$(echo "$content" | sed 's/data:[a-zA-Z0-9\/+;=,.%-]*base64,[a-zA-Z0-9\/+=]*//g')"
+        content="$(echo "$content" | \
+          sed 's/data:[a-zA-Z0-9\/+;=,.%-]*base64,[a-zA-Z0-9\/+=]*//g')"
     echo "$content" | fold -s -w 200
 }
 
@@ -246,7 +247,8 @@ run_text() {
         content="$(clean_file_for_ai "$f")"
 
         local current_size
-        current_size=$(stat -f%z "$out" 2>/dev/null || stat -c%s "$out" 2>/dev/null || echo 0)
+        current_size=$(stat -f%z "$out" 2>/dev/null || \
+          stat -c%s "$out" 2>/dev/null || echo 0)
         if (( current_size + ${#header} > MAX_SIZE_BYTES )); then
             ((part++))
             out="$OUT_DIR/ai_context_${part}.txt"
@@ -262,7 +264,6 @@ run_text() {
     echo -e "${GREEN}✓ Created ${part} file(s) in ${OUT_DIR}/${NC}"
 }
 
-# ----------  RESTORE SCRIPT OUTPUT  ----------
 run_sh() {
     local files="$1"
     local part=1
@@ -289,7 +290,8 @@ run_sh() {
         header="mkdir -p \"$(dirname "$f")\" && cat << '$d' > \"$f\""
 
         local current_size
-        current_size=$(stat -f%z "$out" 2>/dev/null || stat -c%s "$out" 2>/dev/null || echo 0)
+        current_size=$(stat -f%z "$out" 2>/dev/null || \
+          stat -c%s "$out" 2>/dev/null || echo 0)
         if (( current_size + ${#header} > MAX_SIZE_BYTES )); then
             ((part++))
             out="$OUT_DIR/ai_restore_${part}.sh"
@@ -306,34 +308,39 @@ run_sh() {
     echo -e "${GREEN}✓ Created ${part} restore script(s) in ${OUT_DIR}/${NC}"
 }
 
-# ----------  MAIN MENU  ----------
 main_menu() {
     safe_clear
     echo -e "${BOLD}${CYAN}           🤖 Roll Repo For AI 🤖${NC}"
     echo -e "${DIM}==============================================${NC}"
     echo ""
-    echo -e "  ${WHITE}1)${NC} Roll AI Version ${DIM}(.txt minimal - most common)${NC}"
+    echo -e "  ${WHITE}1)${NC} Roll AI Version ${DIM}(.txt minimal - most \
+common)${NC}"
     echo ""
-    echo -e "  ${WHITE}2)${NC} Pick files from tree view ${DIM}(interactive select)${NC}"
+    echo -e "  ${WHITE}2)${NC} Pick files from tree view ${DIM}(interactive \
+select)${NC}"
     echo ""
-    echo -e "  ${WHITE}3)${NC} Roll Restorable Version ${DIM}(.sh heredoc - large)${NC}"
+    echo -e "  ${WHITE}3)${NC} Roll Restorable Version ${DIM}(.sh heredoc - \
+large)${NC}"
     echo ""
     echo -e "${DIM}==============================================${NC}"
     echo ""
     read -p "Select mode [1, 2, or 3]: " MODE
 
     case "$MODE" in
-        1)  echo ""; echo -e "${CYAN}Rolling all files to AI-ready text...${NC}"
+        1)  echo ""; echo -e "${CYAN}Rolling all files to AI-ready \
+text...${NC}"
             FILES=$(get_files)
             run_text "$FILES" ;;
         2)  tree_select
             if [[ -n "$SELECTED_FILES" ]]; then
-                safe_clear; echo -e "${CYAN}Rolling selected files to AI-ready text...${NC}"
+                safe_clear; echo -e "${CYAN}Rolling selected files to \
+AI-ready text...${NC}"
                 run_text "$SELECTED_FILES"
             else
                 echo "No files selected."
             fi ;;
-        3)  echo ""; echo -e "${CYAN}Rolling all files to restore scripts...${NC}"
+        3)  echo ""; echo -e "${CYAN}Rolling all files to restore \
+scripts...${NC}"
             FILES=$(get_files)
             run_sh "$FILES" ;;
         *)  echo -e "${RED}Invalid selection${NC}"; exit 1 ;;
