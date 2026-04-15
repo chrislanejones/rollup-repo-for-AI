@@ -14,18 +14,68 @@ AI assistants work best with full project context, but uploading dozens of files
 - Optionally generates restore scripts to recreate the file structure
 - **Interactive tree selection** for cherry-picking specific files/folders
 
+## Install to PATH (Recommended)
+
+Copy the script to `~/.local/bin` so you can run it from any directory without a path prefix:
+
+```bash
+cp roll_repo ~/.local/bin/roll_repo
+chmod +x ~/.local/bin/roll_repo
+```
+
+`~/.local/bin` is a standard user-level bin directory that most distros already include in `$PATH`. No `sudo` needed — your tools, your permissions.
+
+Then add a short alias to `~/.zshrc` (or `~/.bashrc`):
+
+```bash
+roll() {
+  local target_dir="${1:-.}"
+  bash ~/.local/bin/roll_repo "$target_dir"
+}
+```
+
+Reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+Now from any repo on your system you just type:
+
+```bash
+roll           # rolls current directory
+roll ../other  # rolls a different path
+```
+
+No `./`, no full paths, no remembering where you cloned it. One word from anywhere.
+
+### Why ~/.local/bin?
+
+| Approach | What you type |
+| -------- | ------------- |
+| Run from clone dir | `bash /home/you/tools/rollup-repo-for-AI/roll_repo_for_ai.sh` |
+| Add to PATH | `roll_repo` |
+| With alias | `roll` |
+
+The alias also lets you default the target to `.` so calling it bare always operates on the current repo — no arguments needed for the common case.
+
 ## Quick Start
 
 ```bash
-# Clone or download
+# Clone
 git clone https://github.com/yourusername/rollup-repo-for-ai.git
-cd rollup-repo-for-ai
 
-# Run on current directory
-node roll_repo_for_ai.js
+# Install to PATH
+cp rollup-repo-for-ai/roll_repo ~/.local/bin/roll_repo
+chmod +x ~/.local/bin/roll_repo
 
-# Or use bash version (with interactive tree selection)
-./roll_repo_for_ai.sh
+# Add alias to ~/.zshrc
+echo 'roll() { bash ~/.local/bin/roll_repo "${1:-.}"; }' >> ~/.zshrc
+source ~/.zshrc
+
+# Run from any repo
+cd ~/your-project
+roll
 ```
 
 Output lands in `./rolled_repo/`
@@ -60,7 +110,9 @@ node roll_repo_for_ai.js . 40 --mode sh
 ### Bash Version
 
 ```bash
-./roll_repo_for_ai.sh [repo_path] [max_kb]
+roll [repo_path]          # via alias (recommended)
+roll_repo [repo_path]     # direct after installing to ~/.local/bin
+./roll_repo [repo_path]   # or run directly
 ```
 
 Presents an interactive menu:
