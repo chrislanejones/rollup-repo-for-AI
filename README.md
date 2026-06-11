@@ -13,6 +13,7 @@ AI assistants work best with full project context, but uploading dozens of files
 - Respects `.gitignore` and excludes lock files, `node_modules`, build artifacts
 - Optionally generates restore scripts to recreate the file structure
 - **Interactive tree selection** for cherry-picking specific files/folders
+- **Auto-purges `rolled_repo/`** before every roll — output is always the latest, never stale
 
 ## Install to PATH (Recommended)
 
@@ -127,10 +128,14 @@ Presents an interactive menu:
 
   3) Roll Restorable Version (.sh heredoc - large)
 
+  4) Roll AI Version (no git) (.txt minimal - directory scan)
+
 ==============================================
 
-Select mode [1, 2, or 3]:
+Select mode [1, 2, 3, or 4]:
 ```
+
+> **Note:** Every roll first purges `rolled_repo/` so you always get the latest files — no dated leftovers.
 
 ## Output Modes
 

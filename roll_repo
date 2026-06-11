@@ -41,6 +41,13 @@ ensure_gitignore_entries() {
 cd "$REPO_DIR"
 mkdir -p "$OUT_DIR"
 
+purge_out_dir() {
+    echo -e "${YELLOW}⚠  Checking ${BOLD}$OUT_DIR/${NC}${YELLOW} — purging old files...${NC}"
+    find "$OUT_DIR" -type f -delete 2>/dev/null
+    echo -e "${GREEN}✓  $OUT_DIR/ is clean — rolling latest files now.${NC}"
+    echo ""
+}
+
 get_files_git() {
     git ls-files --cached --others --exclude-standard | \
         grep -vE '(\.lock$|bun\.lockb|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)' | \
@@ -416,26 +423,30 @@ directory scan)${NC}"
 
     case "$MODE" in
         1)  ensure_gitignore_entries
-            echo ""; echo -e "${CYAN}Rolling all files to AI-ready \
-text...${NC}"
+            echo ""
+            purge_out_dir
+            echo -e "${CYAN}Rolling all files to AI-ready text...${NC}"
             FILES=$(get_files)
             run_text "$FILES" ;;
         2)  tree_select
             if [[ -n "$SELECTED_FILES" ]]; then
-                safe_clear; echo -e "${CYAN}Rolling selected files to \
-AI-ready text...${NC}"
+                safe_clear
+                purge_out_dir
+                echo -e "${CYAN}Rolling selected files to AI-ready text...${NC}"
                 run_text "$SELECTED_FILES"
             else
                 echo "No files selected."
             fi ;;
         3)  ensure_gitignore_entries
-            echo ""; echo -e "${CYAN}Rolling all files to restore \
-scripts...${NC}"
+            echo ""
+            purge_out_dir
+            echo -e "${CYAN}Rolling all files to restore scripts...${NC}"
             FILES=$(get_files)
             run_sh "$FILES" ;;
         4)  USE_GIT=0
-            echo ""; echo -e "${CYAN}Rolling all files (no git) to \
-AI-ready text...${NC}"
+            echo ""
+            purge_out_dir
+            echo -e "${CYAN}Rolling all files (no git) to AI-ready text...${NC}"
             FILES=$(get_files)
             run_text "$FILES" ;;
         *)  echo -e "${RED}Invalid selection${NC}"; exit 1 ;;
