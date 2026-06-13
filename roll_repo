@@ -55,7 +55,7 @@ get_files_git() {
         grep -vE '(^\.git/|\.next/|\.cache/)' | \
         grep -vE '(node_modules/|dist/|build/|out/|coverage/|public/)' | \
         grep -vE '(^|/)(target|vendor|zig-(cache|zig-out))(/|$)' | \
-        grep -vE '\.(exe|dll|so|dylib|a|o|obj|lib|pdb|ilk|exp|wasm|elf)(\..+)?$' | \
+        grep -viE '\.(exe|dll|so|dylib|a|o|obj|lib|pdb|ilk|exp|wasm|elf|ttf|otf|woff2?|eot|png|jpe?g|gif|bmp|ico|webp|avif|mp4|webm|mov|avi|mp3|wav|ogg|flac|pdf|zip|gz|tar|7z|rar)(\..+)?$' | \
         grep -vE '\.(svelte\.(js|ts|jsx|tsx)|d\.ts)$' | \
         grep -i "$SEARCH_QUERY" | \
         sort
@@ -83,7 +83,9 @@ get_files_no_git() {
         -not -name '.env*' \
         -not -name 'roll_repo_for_ai.sh' \
         -not -name "$OUT_DIR" \
-        -type f | sed 's|^\./||' | grep -i "$SEARCH_QUERY" | sort
+        -type f | sed 's|^\./||' \
+        | grep -viE '\.(exe|dll|so|dylib|a|o|obj|lib|pdb|ilk|exp|wasm|elf|ttf|otf|woff2?|eot|png|jpe?g|gif|bmp|ico|webp|avif|mp4|webm|mov|avi|mp3|wav|ogg|flac|pdf|zip|gz|tar|7z|rar)(\..+)?$' \
+        | grep -i "$SEARCH_QUERY" | sort
 }
 
 get_files() {
@@ -289,9 +291,15 @@ clean_file_for_ai() {
 
 is_binary() {
     local f="$1"
-    if file "$f" 2>/dev/null | grep -qi binary; then
-        return 0
-    fi
+    # Primary: grep -I treats files containing NUL bytes as non-matching,
+    # so a binary/font/image file fails this and is flagged. (Empty files
+    # also fail here and get skipped, which is harmless.)
+    grep -qI . "$f" 2>/dev/null || return 0
+    # Secondary: `file --mime-encoding` reports "binary" for fonts (.ttf),
+    # images, etc. The old check grepped `file` output for the word
+    # "binary", but `file` calls them "TrueType Font data"/"JPEG image
+    # data" — none contain "binary", so they leaked in as garbage bytes.
+    file --mime-encoding "$f" 2>/dev/null | grep -qi 'binary' && return 0
     return 1
 }
 

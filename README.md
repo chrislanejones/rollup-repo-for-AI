@@ -230,6 +230,11 @@ Run them to restore: `bash ai_restore_1.sh`
 | `node_modules/`, `dist/`, `build/`, `out/`, `coverage/`, `public/`        | Dependencies and outputs          |
 | `target/`, `vendor/`, `zig-cache/`, `zig-out/`                            | Go, Rust, Zig build directories   |
 | `.exe`, `.dll`, `.so`, `.dylib`, `.a`, `.o`, `.obj`, `.lib`, `.pdb`, `.ilk`, `.exp`, `.wasm`, `.elf` | Compiled binaries and object files |
+| `.ttf`, `.otf`, `.woff`, `.woff2`, `.eot` | Font files (binary — would corrupt the bundle) |
+| `.png`, `.jpg`, `.gif`, `.bmp`, `.ico`, `.webp`, `.avif`, and other image formats | Images can't be read as text |
+| `.mp4`, `.webm`, `.mov`, `.avi`, `.mp3`, `.wav`, `.ogg`, `.flac`, `.pdf`, `.zip`, `.gz`, `.tar`, `.7z`, `.rar` | Media and archives |
+
+On top of the extension list, **any file containing NUL bytes is detected as binary and skipped** — so binaries with unusual or missing extensions never leak in as garbage.
 
 Only git-tracked files are processed (`git ls-files`).
 
@@ -274,7 +279,7 @@ Only git-tracked files are processed (`git ls-files`).
 - **Chunk size:** 40KB works well for most AI interfaces. Increase to 100KB+ if your AI supports larger contexts.
 - **Multiple parts:** Upload all parts for full context, or just the relevant ones.
 - **Sensitive data:** The tool excludes `.env` files, but review output before sharing.
-- **Binary files:** Automatically skipped.
+- **Binary files:** Automatically skipped — by extension (fonts, images, media, compiled binaries) and by content (anything with NUL bytes), so nothing corrupts the bundle.
 - **Tree selection:** Great for large repos—only include what's relevant to your question.
 
 ## License

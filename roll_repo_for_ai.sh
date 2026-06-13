@@ -50,7 +50,7 @@ get_files() {
         grep -vE '(^\.git/|\.next/|\.cache/)' | \
         grep -vE '(node_modules/|dist/|build/|out/|coverage/|public/)' | \
         grep -vE '(^|/)(target|vendor|zig-(cache|out))(/|$)' | \
-        grep -vE '\.(exe|dll|so|dylib|a|o|obj|lib|pdb|ilk|exp|wasm|elf)(\..+)?$' | \
+        grep -viE '\.(exe|dll|so|dylib|a|o|obj|lib|pdb|ilk|exp|wasm|elf|ttf|otf|woff2?|eot|png|jpe?g|gif|bmp|ico|webp|avif|mp4|webm|mov|avi|mp3|wav|ogg|flac|pdf|zip|gz|tar|7z|rar)(\..+)?$' | \
         grep -vE '\.(svelte\.(js|ts|jsx|tsx)|d\.ts)$' | \
         grep -i "$SEARCH_QUERY" | \
         sort
@@ -163,6 +163,31 @@ tree_select() {
     done
 }
 
+purge_out_dir() {
+    # Wipe any output from a previous run so nobody mistakes stale parts
+    # (e.g. an old ai_context_5.txt) for current output if they run twice.
+    local existing
+    existing=$(find "$OUT_DIR" -type f 2>/dev/null | wc -l)
+    if (( existing > 0 )); then
+        echo -e "${YELLOW}⚠  $OUT_DIR/ has ${existing} file(s) from a previous run — purging so the old roll is gone...${NC}"
+        find "$OUT_DIR" -type f -delete 2>/dev/null
+        echo -e "${GREEN}✓  $OUT_DIR/ is clean — rolling fresh files now.${NC}\n"
+    fi
+}
+
+is_binary() {
+    local f="$1"
+    # grep -I treats files with NUL bytes as non-matching, so any binary,
+    # font (.ttf) or image fails this and is flagged regardless of extension.
+    # (Empty files also fail here and get skipped, which is harmless.)
+    grep -qI . "$f" 2>/dev/null || return 0
+    # Backstop: `file --mime-encoding` reports "binary" for fonts/images.
+    # The old check grepped `file` for the word "binary", but it calls them
+    # "TrueType Font data"/"JPEG image data" — so they leaked in as garbage.
+    file --mime-encoding "$f" 2>/dev/null | grep -qi 'binary' && return 0
+    return 1
+}
+
 clean_file_for_ai() {
     local f="$1"
     local content
@@ -177,7 +202,9 @@ open_output() {
 }
 
 run_text() {
-    local files="$1" part=1 out="$OUT_DIR/ai_context_${part}.txt"
+    local files="$1" part=1
+    local out="$OUT_DIR/ai_context_${part}.txt"
+    purge_out_dir
     echo "" > "$out"
     local total=$(echo "$files" | grep -c . || echo 0)
     local count=0
@@ -185,8 +212,8 @@ run_text() {
         [[ -z "$f" || ! -f "$f" ]] && continue
         # 200KB Guard
         [[ $(stat -c%s "$f" 2>/dev/null || stat -f%z "$f") -gt 200000 ]] && continue
-        file "$f" 2>/dev/null | grep -qi binary && continue
-        
+        is_binary "$f" && continue
+
         ((count++)); printf "\rProcessing %d/%d..." "$count" "$total"
         header="===== FILE: $f ====="
         content="$(clean_file_for_ai "$f")"
@@ -199,12 +226,14 @@ run_text() {
 }
 
 run_sh() {
-    local files="$1" part=1 out="$OUT_DIR/ai_restore_${part}.sh"
+    local files="$1" part=1
+    local out="$OUT_DIR/ai_restore_${part}.sh"
+    purge_out_dir
     echo "#!/bin/bash" > "$out"; chmod +x "$out"
     while IFS= read -r f; do
         [[ -z "$f" || ! -f "$f" ]] && continue
         [[ $(stat -c%s "$f" 2>/dev/null || stat -f%z "$f") -gt 200000 ]] && continue
-        file "$f" 2>/dev/null | grep -qi binary && continue
+        is_binary "$f" && continue
         d="EOF_$(echo "$f" | md5sum | cut -c1-6)"
         echo -e "mkdir -p \"$(dirname "$f")\" && cat << '$d' > \"$f\"" >> "$out"
         cat "$f" >> "$out"

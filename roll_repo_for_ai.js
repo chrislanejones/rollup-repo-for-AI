@@ -6,7 +6,7 @@ import os from "os";
 import { execSync } from "child_process";
 
 const repoDir = process.argv[2] || ".";
-const maxKB = parseInt(process.argv[3] || "40", 10);
+const maxKB = parseInt(process.argv[3], 10) || 40;
 const maxBytes = maxKB * 1024;
 const outDir = path.join(repoDir, "rolled_repo");
 fs.mkdirSync(outDir, { recursive: true });
@@ -26,13 +26,29 @@ const files = execSync(`git ls-files --cached --others --exclude-standard`, {
       !f.match(/(^\.git\/|\.next\/|\.cache\/)/) &&
       !f.match(/(node_modules\/|dist\/|build\/|out\/|coverage\/|public\/)/) &&
       !f.match(/(^|\/)(target|vendor|zig-(cache|out))(\/|$)/) &&
-      !f.match(/\.(exe|dll|so|dylib|a|o|obj|lib|pdb|ilk|exp|wasm|elf)(\..+)?$/) &&
+      !f.match(/\.(exe|dll|so|dylib|a|o|obj|lib|pdb|ilk|exp|wasm|elf)(\..+)?$/i) &&
+      !f.match(/\.(ttf|otf|woff2?|eot)$/i) &&
+      !f.match(/\.(mp4|webm|mov|avi|mp3|wav|ogg|flac|pdf|zip|gz|tar|7z|rar)$/i) &&
       !f.match(/\.(svelte\.(js|ts|jsx|tsx)|d\.ts|test)$/) &&
       !f.match(/\.(png|jpe?g|gif|bmp|webp|ico|tiff?|raw|cr2|nef|arw|psd|heic|avif)$/i)
   );
 
 const isImage = (file) =>
   /\.(png|jpe?g|gif|bmp|webp|ico|tiff?|raw|cr2|nef|arw|psd|heic|avif)$/i.test(file);
+
+// Content-based binary check: any file containing a NUL byte is binary,
+// regardless of extension. Catches fonts/images/binaries that slip past
+// the extension filters above (and unknown extensions entirely).
+const isBinary = (filePath) => {
+  try {
+    const buf = fs.readFileSync(filePath);
+    const n = Math.min(buf.length, 8192);
+    for (let i = 0; i < n; i++) if (buf[i] === 0) return true;
+    return false;
+  } catch {
+    return true; // unreadable → treat as binary and skip
+  }
+};
 
 function cleanForAI(filePath) {
   let content = fs.readFileSync(filePath, "utf8");
@@ -53,7 +69,28 @@ function cleanForAI(filePath) {
   return content;
 }
 
+// Wipe output from a previous run so nobody mistakes stale parts
+// (e.g. an old ai_context_5.txt) for current output if they run twice.
+const purgeOutDir = () => {
+  let existing = [];
+  try {
+    existing = fs.readdirSync(outDir);
+  } catch {}
+  if (existing.length) {
+    console.log(
+      `⚠  ${outDir}/ has ${existing.length} file(s) from a previous run — purging so the old roll is gone...`
+    );
+    for (const name of existing) {
+      try {
+        fs.rmSync(path.join(outDir, name), { recursive: true, force: true });
+      } catch {}
+    }
+    console.log(`✓  ${outDir}/ is clean — rolling fresh files now.\n`);
+  }
+};
+
 const runText = () => {
+  purgeOutDir();
   let part = 1;
   let outPath = path.join(outDir, `ai_context_${part}.txt`);
   fs.writeFileSync(outPath, `AI CONTEXT PART ${part}\n`);
@@ -61,7 +98,7 @@ const runText = () => {
   for (const f of files) {
     const full = path.join(repoDir, f);
     if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) continue;
-    if (isImage(f)) continue;
+    if (isImage(f) || isBinary(full)) continue;
 
     const content = cleanForAI(full);
     const header = `===== FILE: ${f} =====\n`;
@@ -77,6 +114,7 @@ const runText = () => {
 };
 
 const runRestore = () => {
+  purgeOutDir();
   let part = 1;
   let outPath = path.join(outDir, `ai_restore_${part}.sh`);
 
@@ -92,7 +130,7 @@ const runRestore = () => {
   for (const f of files) {
     const full = path.join(repoDir, f);
     if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) continue;
-    if (isImage(f)) continue;
+    if (isImage(f) || isBinary(full)) continue;
 
     const header = `mkdir -p "${path.dirname(f)}" && cat << 'EOF' > "${f}"\n`;
     const curSize = fs.statSync(outPath).size;
@@ -107,14 +145,24 @@ const runRestore = () => {
   }
 };
 
-console.clear();
-console.log("==============================================");
-console.log("          🤖 Roll Repo For AI (Node) 🤖");
-console.log("==============================================");
-console.log("1) Roll AI Version (.txt minimal - most common use case)");
-console.log("2) Roll Restorable Version (.sh full heredoc)");
-const input = fs.readFileSync(0, "utf8").trim();
-const mode = input.endsWith("2") ? "2" : "1";
+// Mode can be passed non-interactively via --mode text|sh (matches the
+// documented CLI). If omitted, fall back to the interactive prompt.
+const modeFlagIdx = process.argv.indexOf("--mode");
+const modeArg = modeFlagIdx !== -1 ? process.argv[modeFlagIdx + 1] : null;
+
+let mode;
+if (modeArg) {
+  mode = /^(sh|restore|2)$/i.test(modeArg) ? "2" : "1";
+} else {
+  console.clear();
+  console.log("==============================================");
+  console.log("          🤖 Roll Repo For AI (Node) 🤖");
+  console.log("==============================================");
+  console.log("1) Roll AI Version (.txt minimal - most common use case)");
+  console.log("2) Roll Restorable Version (.sh full heredoc)");
+  const input = fs.readFileSync(0, "utf8").trim();
+  mode = input.endsWith("2") ? "2" : "1";
+}
 if (mode === "1") runText();
 else runRestore();
 
