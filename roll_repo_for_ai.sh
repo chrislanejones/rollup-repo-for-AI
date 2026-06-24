@@ -193,7 +193,16 @@ clean_file_for_ai() {
     local content
     content="$(sed -e 's/\/\/.*$//' -e 's/#.*$//' -e '/\/\*/,/\*\//d' -e 's/[[:space:]]\+/ /g' -e 's/^[ \t]*//' -e 's/[ \t]*$//' "$f" 2>/dev/null | sed '/^$/d')"
     [[ "${f##*.}" != "css" ]] && content="$(echo "$content" | sed 's/data:[a-zA-Z0-9\/+;=,.%-]*base64,[a-zA-Z0-9\/+=]*//g')"
-    echo "$content" | fold -s -w 200
+    # Wrap long lines at 200 chars. NOTE: `fold` counts BYTES, so it splits
+    # multibyte UTF-8 (box-drawing art, em-dashes, emoji) mid-character and
+    # produces invalid bytes — the output then gets rejected by AI uploaders
+    # as an "unsupported text file". Use perl with -CSD so length/substr count
+    # CHARACTERS, not bytes. Fall back to no-wrap (still valid) if perl is absent.
+    if command -v perl >/dev/null 2>&1; then
+        echo "$content" | perl -CSD -ne 'chomp; while (length > 200) { print substr($_,0,200), "\n"; $_ = substr($_,200) } print "$_\n"'
+    else
+        echo "$content"
+    fi
 }
 
 open_output() {
