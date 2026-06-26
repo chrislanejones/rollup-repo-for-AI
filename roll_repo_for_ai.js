@@ -3,11 +3,14 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import readline from "readline";
 import { execSync } from "child_process";
 
 const repoDir = process.argv[2] || ".";
-const maxKB = parseInt(process.argv[3], 10) || 40;
-const maxBytes = maxKB * 1024;
+const sizeArg = parseInt(process.argv[3], 10);   // KB; NaN if not passed
+const sizeArgGiven = !Number.isNaN(sizeArg);
+let maxKB = sizeArgGiven ? sizeArg : 250;        // default; may be set by the picker
+let maxBytes = maxKB * 1024;
 const outDir = path.join(repoDir, "rolled_repo");
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -145,25 +148,103 @@ const runRestore = () => {
   }
 };
 
+// Arrow-key picker (←/→ or ↑/↓, Enter to confirm). Only usable on a real
+// terminal; when stdin is piped it resolves to the default option instead.
+const pickOption = (title, subtitle, options, defaultIdx = 0) =>
+  new Promise((resolve) => {
+    if (!process.stdin.isTTY) {
+      resolve(options[defaultIdx].value);
+      return;
+    }
+    let sel = defaultIdx;
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    const render = () => {
+      console.clear();
+      console.log("==============================================");
+      console.log("          🤖 Roll Repo For AI (Node) 🤖");
+      console.log("==============================================");
+      console.log(title);
+      if (subtitle) console.log(subtitle);
+      console.log("←/→: Change  |  Enter: Confirm  |  q: Quit\n");
+      const line = options
+        .map((o, i) => (i === sel ? `▶ ${o.label} ◀` : `  ${o.label}  `))
+        .join("      ");
+      console.log("     " + line + "\n");
+    };
+    render();
+
+    const cleanup = () => {
+      process.stdin.removeListener("keypress", onKey);
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+    };
+    const onKey = (_str, key) => {
+      if (!key) return;
+      if (key.name === "right" || key.name === "down") {
+        if (sel < options.length - 1) sel++;
+        render();
+      } else if (key.name === "left" || key.name === "up") {
+        if (sel > 0) sel--;
+        render();
+      } else if (key.name === "return") {
+        cleanup();
+        resolve(options[sel].value);
+      } else if (key.name === "q" || (key.ctrl && key.name === "c")) {
+        cleanup();
+        console.log("\nCancelled.");
+        process.exit(0);
+      }
+    };
+    process.stdin.on("keypress", onKey);
+  });
+
 // Mode can be passed non-interactively via --mode text|sh (matches the
 // documented CLI). If omitted, fall back to the interactive prompt.
 const modeFlagIdx = process.argv.indexOf("--mode");
 const modeArg = modeFlagIdx !== -1 ? process.argv[modeFlagIdx + 1] : null;
 
-let mode;
-if (modeArg) {
-  mode = /^(sh|restore|2)$/i.test(modeArg) ? "2" : "1";
-} else {
-  console.clear();
-  console.log("==============================================");
-  console.log("          🤖 Roll Repo For AI (Node) 🤖");
-  console.log("==============================================");
-  console.log("1) Roll AI Version (.txt minimal - most common use case)");
-  console.log("2) Roll Restorable Version (.sh full heredoc)");
-  const input = fs.readFileSync(0, "utf8").trim();
-  mode = input.endsWith("2") ? "2" : "1";
-}
-if (mode === "1") runText();
-else runRestore();
+async function main() {
+  let mode;
+  if (modeArg) {
+    mode = /^(sh|restore|2)$/i.test(modeArg) ? "2" : "1";
+  } else if (process.stdin.isTTY) {
+    mode = await pickOption(
+      "Mode",
+      null,
+      [
+        { label: "AI text (.txt)", value: "1" },
+        { label: "Restore (.sh)", value: "2" },
+      ],
+      0
+    );
+  } else {
+    // Back-compat: read a piped "1"/"2" selection.
+    const input = fs.readFileSync(0, "utf8").trim();
+    mode = input.endsWith("2") ? "2" : "1";
+  }
 
-console.log(`\nDone! Output saved in ${outDir}\n`);
+  // Chunk size: an explicit 2nd arg wins; otherwise prompt (or default 250).
+  if (!sizeArgGiven) {
+    maxKB = await pickOption(
+      "Chunk size — max size of each output file you paste/upload into the AI",
+      null,
+      [
+        { label: "50 KB", value: 50 },
+        { label: "250 KB", value: 250 },
+        { label: "1 MB", value: 1024 },
+      ],
+      1
+    );
+    maxBytes = maxKB * 1024;
+  }
+
+  if (mode === "1") runText();
+  else runRestore();
+
+  console.log(`\nDone! Output saved in ${outDir}\n`);
+}
+
+main();

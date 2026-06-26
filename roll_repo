@@ -8,8 +8,8 @@ safe_clear() { clear 2>/dev/null || true; }
 safe_tput()   { tput "$@" 2>/dev/null || true; }
 
 REPO_DIR="${1:-.}"
-MAX_SIZE_KB="${2:-40}"
-MAX_SIZE_BYTES=$((MAX_SIZE_KB * 1024))
+MAX_SIZE_KB="${2:-}"      # empty → prompt interactively; or pass KB as the 2nd arg
+MAX_SIZE_BYTES=0          # computed after the chunk size is chosen
 OUT_DIR="rolled_repo"
 SEARCH_QUERY=""
 USE_GIT=1
@@ -418,6 +418,53 @@ run_sh() {
     open_output
 }
 
+select_chunk_size() {
+    # Arrow-key picker for the max size of each output file (the "chunk" you
+    # paste / upload into a non-terminal AI). ←/→ (or ↑/↓) to move, Enter to pick.
+    local sizes_kb=(50 250 1024)
+    local sizes_label=("50 KB" "250 KB" "1 MB")
+    local sel=1   # default highlight → 250 KB
+
+    safe_tput civis
+    trap 'tput cnorm 2>/dev/null; stty sane 2>/dev/null' EXIT
+
+    while true; do
+        safe_clear
+        echo -e "${BOLD}${CYAN}           🤖 Roll Repo For AI 🤖${NC}"
+        echo -e "${DIM}=============================================${NC}"
+        echo -e "${WHITE}Chunk size${NC} ${DIM}— max size of each output file you paste/upload into the AI${NC}"
+        echo -e "${DIM}←/→: Change  |  Enter: Confirm  |  q: Quit${NC}"
+        echo -e "${DIM}=============================================${NC}"
+        echo ""
+
+        local line="     "
+        for ((i=0; i<${#sizes_label[@]}; i++)); do
+            if ((i == sel)); then
+                line+="${GREEN}${BOLD}▶ ${sizes_label[$i]} ◀${NC}"
+            else
+                line+="${DIM}  ${sizes_label[$i]}  ${NC}"
+            fi
+            ((i < ${#sizes_label[@]}-1)) && line+="      "
+        done
+        echo -e "$line"
+        echo ""
+
+        IFS= read -rsn1 key
+        case "$key" in
+            $'\x1b') read -rsn2 -t 0.1 key2
+                     case "$key2" in
+                         '[C'|'[B') ((sel < ${#sizes_kb[@]}-1)) && ((sel++)) ;;
+                         '[D'|'[A') ((sel > 0)) && ((sel--)) ;;
+                     esac ;;
+            ''|$'\n') break ;;
+            'q'|'Q') safe_tput cnorm; echo; echo "Cancelled."; exit 0 ;;
+        esac
+    done
+
+    safe_tput cnorm
+    MAX_SIZE_KB="${sizes_kb[$sel]}"
+}
+
 main_menu() {
     safe_clear
     echo -e "${BOLD}${CYAN}           🤖 Roll Repo For AI 🤖${NC}"
@@ -438,6 +485,12 @@ directory scan)${NC}"
     echo -e "${DIM}==============================================${NC}"
     echo ""
     read -p "Select mode [1, 2, 3, or 4]: " MODE
+
+    # Ask for the chunk size before rolling (unless one was passed as the 2nd arg).
+    if [[ "$MODE" =~ ^[1-4]$ ]]; then
+        [[ -z "$MAX_SIZE_KB" ]] && select_chunk_size
+        MAX_SIZE_BYTES=$((MAX_SIZE_KB * 1024))
+    fi
 
     case "$MODE" in
         1)  ensure_gitignore_entries

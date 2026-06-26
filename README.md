@@ -92,13 +92,13 @@ node roll_repo_for_ai.js [repo_path] [max_kb] [--mode text|sh]
 | Argument    | Default | Description                                     |
 | ----------- | ------- | ----------------------------------------------- |
 | `repo_path` | `.`     | Path to your git repository                     |
-| `max_kb`    | `40`    | Max size per output file (KB)                   |
+| `max_kb`    | `250`   | Max size per output file (KB)                   |
 | `--mode`    | `text`  | `text` for AI context, `sh` for restore scripts |
 
 **Examples:**
 
 ```bash
-# Roll current repo into 40KB chunks
+# Roll current repo into 250KB chunks
 node roll_repo_for_ai.js
 
 # Roll a different repo with 100KB chunks
@@ -276,7 +276,7 @@ Only git-tracked files are processed (`git ls-files`).
 
 ## Tips
 
-- **Chunk size:** 40KB works well for most AI interfaces. Increase to 100KB+ if your AI supports larger contexts.
+- **Chunk size:** Each version prompts you to pick a chunk size with the arrow keys — **50 KB**, **250 KB** (default), or **1 MB** — i.e. the max size of each output file you paste/upload into a non-terminal AI. This works in all three formats: `roll_repo` and `roll_repo_for_ai.sh` (bash) and `roll_repo_for_ai.js` (Node). To skip the prompt, pass a size as the 2nd arg (e.g. `roll_repo . 500`, or `node roll_repo_for_ai.js . 500`). When stdin is piped (non-interactive), the Node version falls back to that arg or the `250` default.
 - **Multiple parts:** Upload all parts for full context, or just the relevant ones.
 - **Sensitive data:** The tool excludes `.env` files, but review output before sharing.
 - **Binary files:** Automatically skipped — by extension (fonts, images, media, compiled binaries) and by content (anything with NUL bytes), so nothing corrupts the bundle.

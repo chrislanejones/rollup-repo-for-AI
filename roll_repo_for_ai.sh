@@ -8,8 +8,8 @@ safe_clear() { clear 2>/dev/null || true; }
 safe_tput()   { tput "$@" 2>/dev/null || true; }
 
 REPO_DIR="${1:-.}"
-MAX_SIZE_KB="${2:-40}"
-MAX_SIZE_BYTES=$((MAX_SIZE_KB * 1024))
+MAX_SIZE_KB="${2:-}"      # empty → prompt interactively; or pass KB as the 2nd arg
+MAX_SIZE_BYTES=0          # computed after the chunk size is chosen
 OUT_DIR="rolled_repo"
 SEARCH_QUERY=""
 
@@ -226,11 +226,20 @@ run_text() {
         ((count++)); printf "\rProcessing %d/%d..." "$count" "$total"
         header="===== FILE: $f ====="
         content="$(clean_file_for_ai "$f")"
+
+        # Start a new chunk once this one would exceed the chosen size
+        local current_size
+        current_size=$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out" 2>/dev/null || echo 0)
+        if (( current_size + ${#header} > MAX_SIZE_BYTES )); then
+            ((part++))
+            out="$OUT_DIR/ai_context_${part}.txt"
+            echo "" > "$out"
+        fi
         echo -e "$header\n$content\n" >> "$out"
     done <<< "$files"
-    
+
     local final_size=$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out" 2>/dev/null || echo 0)
-    echo -e "\n${GREEN}✓ Done! Approx Tokens: $((final_size / 4))${NC}"
+    echo -e "\n${GREEN}✓ Created ${part} file(s) in ${OUT_DIR}/ — Approx tokens (last part): $((final_size / 4))${NC}"
     open_output
 }
 
@@ -244,18 +253,82 @@ run_sh() {
         [[ $(stat -c%s "$f" 2>/dev/null || stat -f%z "$f") -gt 200000 ]] && continue
         is_binary "$f" && continue
         d="EOF_$(echo "$f" | md5sum | cut -c1-6)"
-        echo -e "mkdir -p \"$(dirname "$f")\" && cat << '$d' > \"$f\"" >> "$out"
+        header="mkdir -p \"$(dirname "$f")\" && cat << '$d' > \"$f\""
+
+        # Start a new chunk once this one would exceed the chosen size
+        local current_size
+        current_size=$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out" 2>/dev/null || echo 0)
+        if (( current_size + ${#header} > MAX_SIZE_BYTES )); then
+            ((part++))
+            out="$OUT_DIR/ai_restore_${part}.sh"
+            echo "#!/bin/bash" > "$out"; chmod +x "$out"
+        fi
+        echo "$header" >> "$out"
         cat "$f" >> "$out"
         echo "$d" >> "$out"
     done <<< "$files"
-    echo -e "\n${GREEN}✓ Restore script created.${NC}"
+    echo -e "\n${GREEN}✓ Created ${part} restore script(s) in ${OUT_DIR}/${NC}"
     open_output
+}
+
+select_chunk_size() {
+    # Arrow-key picker for the max size of each output file (the "chunk" you
+    # paste / upload into a non-terminal AI). ←/→ (or ↑/↓) to move, Enter to pick.
+    local sizes_kb=(50 250 1024)
+    local sizes_label=("50 KB" "250 KB" "1 MB")
+    local sel=1   # default highlight → 250 KB
+
+    safe_tput civis
+    trap 'tput cnorm 2>/dev/null; stty sane 2>/dev/null' EXIT
+
+    while true; do
+        safe_clear
+        echo -e "${BOLD}${CYAN}           🤖 Roll Repo For AI 🤖${NC}"
+        echo -e "${DIM}=============================================${NC}"
+        echo -e "${WHITE}Chunk size${NC} ${DIM}— max size of each output file you paste/upload into the AI${NC}"
+        echo -e "${DIM}←/→: Change  |  Enter: Confirm  |  q: Quit${NC}"
+        echo -e "${DIM}=============================================${NC}"
+        echo ""
+
+        local line="     "
+        for ((i=0; i<${#sizes_label[@]}; i++)); do
+            if ((i == sel)); then
+                line+="${GREEN}${BOLD}▶ ${sizes_label[$i]} ◀${NC}"
+            else
+                line+="${DIM}  ${sizes_label[$i]}  ${NC}"
+            fi
+            ((i < ${#sizes_label[@]}-1)) && line+="      "
+        done
+        echo -e "$line"
+        echo ""
+
+        read -rsn1 key
+        case "$key" in
+            $'\x1b') read -rsn2 -t 0.1 k2
+                     case "$k2" in
+                         '[C'|'[B') ((sel < ${#sizes_kb[@]}-1)) && ((sel++)) ;;
+                         '[D'|'[A') ((sel > 0)) && ((sel--)) ;;
+                     esac ;;
+            ''|$'\n') break ;;
+            'q'|'Q') safe_tput cnorm; echo; echo "Cancelled."; exit 0 ;;
+        esac
+    done
+
+    safe_tput cnorm
+    MAX_SIZE_KB="${sizes_kb[$sel]}"
 }
 
 # Entry Point
 safe_clear
 echo -e "1) Roll AI (.txt)\n2) Interactive Select\n3) Roll Restore (.sh)"
 read -p "Selection: " MODE
+
+# Ask for the chunk size before rolling (unless one was passed as the 2nd arg).
+if [[ "$MODE" =~ ^[1-3]$ ]]; then
+    [[ -z "$MAX_SIZE_KB" ]] && select_chunk_size
+    MAX_SIZE_BYTES=$((MAX_SIZE_KB * 1024))
+fi
+
 case "$MODE" in
     1) run_text "$(get_files)" ;;
     2) tree_select; [[ -n "$SELECTED_FILES" ]] && run_text "$SELECTED_FILES" ;;
